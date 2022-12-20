@@ -1,7 +1,12 @@
+// ignore_for_file: library_private_types_in_public_api, no_leading_underscores_for_local_identifiers
+
 import 'package:flutter/material.dart';
 import 'package:flutter/services.dart';
 import 'package:otp_text_field/otp_field_style.dart';
 import 'package:otp_text_field/style.dart';
+
+const _empty = '\u200b';
+// const _empty = '1';
 
 class OTPTextField extends StatefulWidget {
   /// TextField Controller
@@ -16,6 +21,11 @@ class OTPTextField extends StatefulWidget {
   /// Width of the single OTP Field
   final double fieldWidth;
 
+  /// margin around the text fields
+  @Deprecated(
+      "Since there is an issue with the margin because it's around each item, we use [spaceBetween] from now on.")
+  final EdgeInsetsGeometry? margin;
+
   /// space between the text fields
   final double spaceBetween;
 
@@ -27,8 +37,6 @@ class OTPTextField extends StatefulWidget {
 
   /// show the error border or not
   final bool hasError;
-
-  final TextCapitalization textCapitalization;
 
   /// The style to use for the text being edited.
   final TextStyle style;
@@ -71,10 +79,10 @@ class OTPTextField extends StatefulWidget {
     this.spaceBetween = 0,
     this.otpFieldStyle,
     this.hasError = false,
+    this.margin,
     this.keyboardType = TextInputType.number,
     this.style = const TextStyle(),
-    this.outlineBorderRadius: 10,
-    this.textCapitalization = TextCapitalization.none,
+    this.outlineBorderRadius = 10,
     this.textFieldAlignment = MainAxisAlignment.spaceBetween,
     this.obscureText = false,
     this.fieldStyle = FieldStyle.underline,
@@ -123,7 +131,9 @@ class _OTPTextFieldState extends State<OTPTextField> {
 
   @override
   void dispose() {
-    _textControllers.forEach((controller) => controller?.dispose());
+    for (var controller in _textControllers) {
+      controller?.dispose();
+    }
     super.dispose();
   }
 
@@ -146,20 +156,14 @@ class _OTPTextFieldState extends State<OTPTextField> {
   /// * Requires a build context
   /// * Requires Int position of the field
   Widget buildTextField(BuildContext context, int index) {
-    FocusNode? focusNode = _focusNodes[index];
-    TextEditingController? textEditingController = _textControllers[index];
-
-    // if focus node doesn't exist, create it.
-    if (focusNode == null) {
+    if (_focusNodes[index] == null) {
       _focusNodes[index] = FocusNode();
-      focusNode = _focusNodes[index];
-      focusNode?.addListener((() => handleFocusChange(index)));
-    }
-    if (textEditingController == null) {
-      _textControllers[index] = TextEditingController();
-      textEditingController = _textControllers[index];
     }
 
+    if (_textControllers[index] == null) {
+      // _textControllers[index] = TextEditingController();
+      _textControllers[index] = TextEditingController(text: _empty);
+    }
     final isLast = index == widget.length - 1;
 
     InputBorder _getBorder(Color color) {
@@ -176,17 +180,17 @@ class _OTPTextFieldState extends State<OTPTextField> {
 
     return Container(
       width: widget.fieldWidth,
-      margin: EdgeInsets.only(
-        right: isLast ? 0 : widget.spaceBetween,
-      ),
+      margin: widget.margin ??
+          EdgeInsets.only(
+            right: isLast ? 0 : widget.spaceBetween,
+          ),
       child: TextField(
         controller: _textControllers[index],
         keyboardType: widget.keyboardType,
-        textCapitalization: widget.textCapitalization,
         textAlign: TextAlign.center,
         style: widget.style,
         inputFormatters: widget.inputFormatter,
-        maxLength: 1,
+        // maxLength: 2,
         focusNode: _focusNodes[index],
         obscureText: widget.obscureText,
         decoration: InputDecoration(
@@ -205,11 +209,8 @@ class _OTPTextFieldState extends State<OTPTextField> {
           // to hide the error text
           errorStyle: const TextStyle(height: 0, fontSize: 0),
         ),
-        onChanged: (String str) {
-          if (str.length > 1) {
-            _handlePaste(str);
-            return;
-          }
+        onChanged: (String text) {
+          final str = text.replaceAll(_empty, '');
 
           // Check if the current value at this position is empty
           // If it is move focus to previous text field.
@@ -217,6 +218,15 @@ class _OTPTextFieldState extends State<OTPTextField> {
             if (index == 0) return;
             _focusNodes[index]!.unfocus();
             _focusNodes[index - 1]!.requestFocus();
+            if (!text.contains(_empty)) {
+              _textControllers[index - 1]!.text = _empty;
+            }
+            _textControllers[index]!.text = _empty;
+          }
+
+          if (str.length > 1) {
+            _handlePaste(str, index);
+            return;
           }
 
           // Update the current pin
@@ -248,38 +258,27 @@ class _OTPTextFieldState extends State<OTPTextField> {
     );
   }
 
-  void handleFocusChange(int index) {
-    FocusNode? focusNode = _focusNodes[index];
-    TextEditingController? controller = _textControllers[index];
-
-    if (focusNode == null || controller == null) return;
-
-    if (focusNode.hasFocus) {
-      controller.selection = TextSelection.fromPosition(
-          TextPosition(offset: controller.text.length));
-    }
-  }
-
   String _getCurrentPin() {
     String currentPin = "";
-    _pin.forEach((String value) {
+    for (var value in _pin) {
       currentPin += value;
-    });
+    }
     return currentPin;
   }
 
-  void _handlePaste(String str) {
-    if (str.length > widget.length) {
-      str = str.substring(0, widget.length);
+  void _handlePaste(String str, int index) {
+    if (index >= widget.length) return;
+    if (index + str.length > widget.length) {
+      str = str.substring(0, widget.length - index);
     }
 
     for (int i = 0; i < str.length; i++) {
       String digit = str.substring(i, i + 1);
-      _textControllers[i]!.text = digit;
-      _pin[i] = digit;
+      _textControllers[index + i]!.text = _empty + digit;
+      _pin[index + i] = digit;
     }
 
-    FocusScope.of(context).requestFocus(_focusNodes[widget.length - 1]);
+    FocusScope.of(context).requestFocus(_focusNodes[index + str.length - 1]);
 
     String currentPin = _getCurrentPin();
 
@@ -310,11 +309,11 @@ class OtpFieldController {
     });
 
     final textControllers = _otpTextFieldState._textControllers;
-    textControllers.forEach((textController) {
+    for (var textController in textControllers) {
       if (textController != null) {
         textController.text = '';
       }
-    });
+    }
 
     final firstFocusNode = _otpTextFieldState._focusNodes[0];
     if (firstFocusNode != null) {
@@ -367,9 +366,9 @@ class OtpFieldController {
     }
 
     String newPin = "";
-    currentPin.forEach((item) {
+    for (var item in currentPin) {
       newPin += item;
-    });
+    }
 
     final widget = _otpTextFieldState.widget;
     if (widget.onChanged != null) {
